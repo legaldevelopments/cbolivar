@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+
+# Carpeta Girardota (análisis separado)
+tablero girardota/
+
+# Archivos de trabajo temporales
+tablero.py
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
