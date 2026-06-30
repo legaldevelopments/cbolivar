@@ -19,9 +19,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-RUTA_PREF = os.path.join(os.path.dirname(__file__), "prefacturado.xlsx")
-RUTA_EXC  = os.path.join(os.path.dirname(__file__), "PREDIOS EXCEDEN LIMITE 80%.xlsx")
-RUTA_ICA  = os.path.join(os.path.dirname(__file__), "ica")
+RUTA_AN  = os.path.join(os.path.dirname(__file__), "ANALISIS.xlsx")
+RUTA_ICA = os.path.join(os.path.dirname(__file__), "ica")
 
 AZUL_OSC  = "#1F4E79"
 AZUL_MED  = "#2E75B6"
@@ -92,60 +91,48 @@ st.markdown("""
 # ── CARGA PREDIAL ─────────────────────────────────────────────────────────────
 @st.cache_data(show_spinner="Cargando datos Predial 2026...")
 def cargar():
-    df_raw = pd.read_excel(RUTA_PREF, sheet_name="prefacturado")
-    df_raw.columns = [
-        c.strip().lower()
-         .replace(" ", "_")
-         .replace("(", "")
-         .replace(")", "")
-        for c in df_raw.columns
-    ]
-    for col in ["base_gravable", "derecho", "tarifa", "predial_periodo_trimestre"]:
+    df_raw = pd.read_excel(RUTA_AN, sheet_name="maestro de entes (marzo)2026")
+
+    # Columnas por posición (encoding seguro)
+    COL_MAT   = df_raw.columns[7]   # Matrícula
+    COL_CONTR = df_raw.columns[4]   # Contribuyente
+    COL_DEST  = df_raw.columns[24]  # Destinación 2026
+    COL_BASE  = df_raw.columns[17]  # Base gravable 2026
+    COL_TAR26 = df_raw.columns[22]  # Tarifa 2026
+    COL_DIGAC = df_raw.columns[29]  # Dest. IGAC
+
+    for col in [COL_BASE, COL_TAR26]:
+        df_raw[col] = pd.to_numeric(df_raw[col], errors="coerce")
+    for col in ["TOTAL ANUAL 2025", "TOTAL ANUAL 2026", "TOPE DEL 80%", "DEBIDO LIQUIDAR 2026 (80%)"]:
         df_raw[col] = pd.to_numeric(df_raw[col], errors="coerce").fillna(0)
-    df_raw["matricula"] = df_raw["matricula"].astype(str).str.strip()
-    df_pref = df_raw.groupby("matricula").agg(
-        ZONA          = ("sector",                  "first"),
-        DEST_COD      = ("dest_igac",               "first"),
-        DEST_NOM      = ("descripigac",             "first"),
-        DIRECCION     = ("direccion",               "first"),
-        N_PROPIETARIOS= ("cod_nit",                 "count"),
-        BASE_GRAVABLE = ("base_gravable",           "first"),
-        TARIFA        = ("tarifa",                  "first"),
-        PREDIAL_TRIM  = ("predial_periodo_trimestre","sum"),
-    ).reset_index()
-    df_pref["PREDIAL_ANUAL_2026"] = df_pref["PREDIAL_TRIM"] * 4
-    df_pref["ZONA"]     = df_pref["ZONA"].str.upper()
-    df_pref["TARIFA_MIL"] = df_pref["TARIFA"] * 1000
 
-    df_exc = pd.read_excel(RUTA_EXC, sheet_name="Hoja4", header=0)
-    cols_exc = [
-        "llave_cruce", "nit", "nro_ficha", "matricula",
-        "area_t_2025", "area_t_2026", "val_area_t",
-        "area_c_2025", "area_c_2026", "val_area_c",
-        "base_2025", "base_2026",
-        "derecho_2025", "derecho_2026",
-        "tarifa_orig", "tarifa_2025", "tarifa_2026",
-        "dest_2025", "dest_2026", "val_dest",
-        "exencion",
-        "facturado_trim_2025", "total_anual_2025",
-        "facturado_trim_2026", "total_anual_2026",
-        "tope_80pct", "debido_liquidar_80pct", "regla_1",
-    ]
-    df_exc.columns = cols_exc[: len(df_exc.columns)]
-    df_exc["matricula"] = df_exc["matricula"].astype(str).str.strip()
-    for col in ["total_anual_2025", "total_anual_2026", "tope_80pct", "debido_liquidar_80pct"]:
-        df_exc[col] = pd.to_numeric(df_exc[col], errors="coerce")
-    df_exc_agg = df_exc.groupby("matricula").agg(
-        total_anual_2025      = ("total_anual_2025",      "sum"),
-        total_anual_2026      = ("total_anual_2026",      "sum"),
-        tope_80pct            = ("tope_80pct",            "sum"),
-        debido_liquidar_80pct = ("debido_liquidar_80pct", "sum"),
-        regla_1               = ("regla_1",               "first"),
-    ).reset_index()
+    df_raw["_excede"] = df_raw["REGLA 1"].astype(str).str.strip().str.upper() == "SE PASA"
 
-    df = df_pref.merge(df_exc_agg, on="matricula", how="left")
-    df["_excede_80pct"]  = (df["regla_1"].fillna("").str.strip().str.upper() == "SE PASA")
-    df["_tiene_hist"]    = df["total_anual_2025"].notna() & (df["total_anual_2025"] > 0)
+    # Zona desde código de destinación: 01-19 = urbano, 20+ = rural
+    def _zona(dest):
+        try:
+            return "RURAL" if int(str(dest).strip().split("-")[0].strip()) >= 20 else "URBANO"
+        except Exception:
+            return "URBANO"
+    df_raw["_ZONA"] = df_raw[COL_DEST].apply(_zona)
+
+    df = df_raw.groupby(COL_MAT).agg(
+        ZONA                  = ("_ZONA",                        "first"),
+        DEST_NOM              = (COL_DEST,                       "first"),
+        DEST_COD              = (COL_DIGAC,                      "first"),
+        N_PROPIETARIOS        = (COL_CONTR,                      "count"),
+        BASE_GRAVABLE         = (COL_BASE,                       "sum"),
+        TARIFA                = (COL_TAR26,                      "first"),
+        total_anual_2025      = ("TOTAL ANUAL 2025",             "sum"),
+        PREDIAL_ANUAL_2026    = ("TOTAL ANUAL 2026",             "sum"),
+        tope_80pct            = ("TOPE DEL 80%",                 "sum"),
+        debido_liquidar_80pct = ("DEBIDO LIQUIDAR 2026 (80%)",   "sum"),
+        _excede_80pct         = ("_excede",                      "any"),
+    ).reset_index().rename(columns={COL_MAT: "matricula"})
+
+    df["TARIFA_MIL"] = df["TARIFA"] * 1000
+    df["_tiene_hist"] = df["total_anual_2025"] > 0
+
     df["IMPTO_CORRECTO_2026"] = np.where(
         df["_excede_80pct"],
         df["debido_liquidar_80pct"].fillna(df["PREDIAL_ANUAL_2026"]),
@@ -275,10 +262,9 @@ def cargar_ica():
 
 
 # ── VERIFICAR ARCHIVOS PREDIAL ─────────────────────────────────────────────────
-for _f, _lbl in [(RUTA_PREF, "prefacturado.xlsx"), (RUTA_EXC, "PREDIOS EXCEDEN LIMITE 80%.xlsx")]:
-    if not os.path.exists(_f):
-        st.error(f"No se encontró **{_lbl}**. Verifique que el archivo esté en la misma carpeta.")
-        st.stop()
+if not os.path.exists(RUTA_AN):
+    st.error("No se encontró **ANALISIS.xlsx**. Verifique que el archivo esté en la misma carpeta.")
+    st.stop()
 
 df_all = cargar()
 
@@ -329,8 +315,8 @@ with st.sidebar:
     st.markdown("""
     <div style='font-size:0.73rem; opacity:0.8;'>
     📂 Predial:<br>
-    &nbsp;&nbsp;<i>prefacturado.xlsx</i><br>
-    &nbsp;&nbsp;<i>PREDIOS EXCEDEN LIMITE 80%.xlsx</i><br><br>
+    &nbsp;&nbsp;<i>ANALISIS.xlsx</i><br>
+    &nbsp;&nbsp;<i>(hoja: maestro de entes (marzo)2026)</i><br><br>
     📂 ICA:<br>
     &nbsp;&nbsp;<i>ica/DECLARACIONES *.xls</i><br>
     &nbsp;&nbsp;<i>ica/12_maest_ente *.xls</i><br>
@@ -390,7 +376,7 @@ with tab_predial:
 
     cols_kpi = st.columns(5)
     kpi(cols_kpi[0], f"{n_f:,}",          "Total Predios",          sel_zona or "Todos",        "oscuro")
-    kpi(cols_kpi[1], fmt_cop(pred_26),    "Predial Anual 2026",     "Prefacturado (trim × 4)",  "ambar")
+    kpi(cols_kpi[1], fmt_cop(pred_26),    "Predial Anual 2026",     "Total anual prefacturado", "ambar")
     kpi(cols_kpi[2], fmt_cop(corr_26),    "Predial Correcto 2026",  "Con límite 80%",           "verde")
     kpi(cols_kpi[3], f"{n_excede:,}",     "Exceden Límite 80%",     "Predios a corregir",       "rojo")
     kpi(cols_kpi[4], fmt_cop(exceso_tot), "Exceso s/ Límite 80%",   "Cobrado de más",           "naranja")
@@ -402,10 +388,10 @@ with tab_predial:
     var_25_26  = (pred_26 - pred_25) / pred_25 * 100 if pred_25 > 0 else 0
 
     if n_hist > 0:
-        st.markdown('<div class="sec-tit">📅 Comparativo 2025 vs 2026 (predios con historial en archivo EXCEDEN)</div>',
+        st.markdown('<div class="sec-tit">📅 Comparativo 2025 vs 2026</div>',
                     unsafe_allow_html=True)
         cols_kpi2 = st.columns(5)
-        kpi(cols_kpi2[0], f"{n_hist:,}",         "Predios con historial 2025", "En archivo de análisis",       "oscuro")
+        kpi(cols_kpi2[0], f"{n_hist:,}",         "Predios con historial 2025", "Con facturación 2025",         "oscuro")
         kpi(cols_kpi2[1], fmt_cop(pred_25),       "Predial Base 2025",          "Suma predios con historial",   "")
         kpi(cols_kpi2[2], fmt_cop(tope_sum),      "Tope 80% Acumulado",         "2025 × 1,80",                  "ambar")
         kpi(cols_kpi2[3], f"{var_25_26:+.1f}%",  "Var. Predial 2025→2026",     "Prefacturado vs 2025",         "rojo" if var_25_26 > 80 else "verde")
