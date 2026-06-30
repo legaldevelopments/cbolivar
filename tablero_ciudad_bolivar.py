@@ -366,37 +366,37 @@ with tab_predial:
     else:
         st.info(f"**{n_t:,}** predios únicos totales — **{n_u:,} urbanos · {n_r:,} rurales**")
 
-    # ── KPIs PRINCIPALES ──────────────────────────────────────────────────────
-    st.markdown('<div class="sec-tit">📊 Indicadores Clave — Prefacturado 2026</div>', unsafe_allow_html=True)
-
+    # ── KPIs ─────────────────────────────────────────────────────────────────
+    pred_25    = df["total_anual_2025"].fillna(0).sum()
     pred_26    = df["PREDIAL_ANUAL_2026"].fillna(0).sum()
     corr_26    = df["IMPTO_CORRECTO_2026"].fillna(0).sum()
     exceso_tot = df["EXCESO_80PCT"].fillna(0).sum()
-    n_excede   = df["_excede_80pct"].sum()
+    n_excede   = int(df["_excede_80pct"].sum())
+    n_hist     = int(df["_tiene_hist"].sum())
+    tope_sum   = df["tope_80pct"].fillna(0).sum()
+    aumento    = pred_26 - pred_25
+    var_25_26  = aumento / pred_25 * 100 if pred_25 > 0 else 0
+    reduccion  = pred_26 - corr_26
 
+    # Fila 1 — Comparativo anual
+    st.markdown('<div class="sec-tit">📅 Comparativo Predial 2025 → 2026</div>', unsafe_allow_html=True)
     cols_kpi = st.columns(5)
-    kpi(cols_kpi[0], f"{n_f:,}",          "Total Predios",          sel_zona or "Todos",        "oscuro")
-    kpi(cols_kpi[1], fmt_cop(pred_26),    "Predial Anual 2026",     "Total anual prefacturado", "ambar")
-    kpi(cols_kpi[2], fmt_cop(corr_26),    "Predial Correcto 2026",  "Con límite 80%",           "verde")
-    kpi(cols_kpi[3], f"{n_excede:,}",     "Exceden Límite 80%",     "Predios a corregir",       "rojo")
-    kpi(cols_kpi[4], fmt_cop(exceso_tot), "Exceso s/ Límite 80%",   "Cobrado de más",           "naranja")
+    kpi(cols_kpi[0], f"{n_f:,}",             "Total Predios",          sel_zona or "Todos",           "oscuro")
+    kpi(cols_kpi[1], fmt_cop(pred_25),        "Predial 2025",           "Facturado año anterior",      "")
+    kpi(cols_kpi[2], fmt_cop(pred_26),        "Prefacturado 2026",      "Antes de aplicar tope 80%",   "ambar")
+    kpi(cols_kpi[3], fmt_cop(aumento),        "Aumento Nominal",        f"vs 2025",                    "rojo" if var_25_26 > 80 else "naranja")
+    kpi(cols_kpi[4], f"{var_25_26:+.1f}%",   "Variación 2025→2026",    "Incremento porcentual",       "rojo" if var_25_26 > 80 else "verde")
     st.markdown("<br>", unsafe_allow_html=True)
 
-    pred_25    = df["total_anual_2025"].fillna(0).sum()
-    n_hist     = df["_tiene_hist"].sum()
-    tope_sum   = df["tope_80pct"].fillna(0).sum()
-    var_25_26  = (pred_26 - pred_25) / pred_25 * 100 if pred_25 > 0 else 0
-
-    if n_hist > 0:
-        st.markdown('<div class="sec-tit">📅 Comparativo 2025 vs 2026</div>',
-                    unsafe_allow_html=True)
-        cols_kpi2 = st.columns(5)
-        kpi(cols_kpi2[0], f"{n_hist:,}",         "Predios con historial 2025", "Con facturación 2025",         "oscuro")
-        kpi(cols_kpi2[1], fmt_cop(pred_25),       "Predial Base 2025",          "Suma predios con historial",   "")
-        kpi(cols_kpi2[2], fmt_cop(tope_sum),      "Tope 80% Acumulado",         "2025 × 1,80",                  "ambar")
-        kpi(cols_kpi2[3], f"{var_25_26:+.1f}%",  "Var. Predial 2025→2026",     "Prefacturado vs 2025",         "rojo" if var_25_26 > 80 else "verde")
-        kpi(cols_kpi2[4], fmt_cop(exceso_tot),    "Exceso Total s/ 80%",        "A devolver / corregir",        "naranja")
-        st.markdown("<br>", unsafe_allow_html=True)
+    # Fila 2 — Análisis límite 80%
+    st.markdown('<div class="sec-tit">⚖️ Análisis del Límite Máximo de Incremento (80%)</div>', unsafe_allow_html=True)
+    cols_kpi2 = st.columns(5)
+    kpi(cols_kpi2[0], f"{n_excede:,}",        "Predios Exceden 80%",    f"De {n_hist:,} con historial",  "rojo")
+    kpi(cols_kpi2[1], fmt_cop(tope_sum),       "Tope Máximo Legal",      "Suma 2025 × 1,80",              "ambar")
+    kpi(cols_kpi2[2], fmt_cop(exceso_tot),     "Exceso sobre el Tope",   "Cobrado de más (a corregir)",   "naranja")
+    kpi(cols_kpi2[3], fmt_cop(corr_26),        "Predial Correcto 2026",  "Con límite 80% aplicado",       "verde")
+    kpi(cols_kpi2[4], fmt_cop(reduccion),      "Reducción a Aplicar",    "Prefacturado − Correcto",       "oscuro")
+    st.markdown("<br>", unsafe_allow_html=True)
 
     # ── COMPARATIVO FISCAL ────────────────────────────────────────────────────
     st.markdown('<div class="sec-tit">📈 Comparativo Fiscal Prefacturado vs Correcto</div>', unsafe_allow_html=True)
